@@ -11,7 +11,14 @@
   <a href="https://github.com/RoboticsData/score_lerobot_episodes/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/RoboticsData/score_lerobot_episodes"></a>
 </p>
 
----
+> [!NOTE]
+> The features in this repository are now integrated into [Robotdata Studio](https://studio.robotdata.com).
+>
+> - Instant ~20% quality boost with our data capture platform
+> - Seamless integration with your existing LeRobot datasets
+> - Powerful diversity scoring and data sanitization techniques
+>
+> [studio.robotdata.com](https://studio.robotdata.com)
 
 # **LeRobot Episode Scoring Toolkit**
 
@@ -22,8 +29,6 @@ Use this toolkit to:
 - **Filter** low-quality episodes to improve downstream training performance
 - **Train and compare** baseline vs. filtered dataset models
 - **Visualize** score distributions and identify problematic episodes
-
----
 
 ## Table of Contents
 - [Features](#features)
