@@ -105,6 +105,8 @@ def main():
     ap.add_argument("--output_dir", default="verify_output")
     ap.add_argument("--save_individual", action="store_true",
                     help="Also save each of the 8 frames as individual PNGs.")
+    ap.add_argument("--video_backend", default="pyav",
+                    help="Video decoding backend: 'pyav' (default) or 'torchcodec'.")
     args = ap.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
@@ -117,7 +119,7 @@ def main():
     )
 
     print(f"Loading dataset: {args.repo_id}")
-    dataset = load_dataset_hf(args.repo_id, root=args.root)
+    dataset = load_dataset_hf(args.repo_id, root=args.root, video_backend=args.video_backend)
 
     # Print all feature keys so camera keys are immediately visible
     print("\nDataset features:")

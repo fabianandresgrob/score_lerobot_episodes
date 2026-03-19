@@ -116,6 +116,7 @@ def load_combined_dataset(
     val_fraction: float = 0.2,
     seed: int = 42,
     dry_run: bool = False,
+    video_backend: str = "pyav",
 ):
     """Load positive and negative LeRobot datasets and return train/val splits."""
     from score_lerobot_episodes.data import load_dataset_hf
@@ -124,7 +125,7 @@ def load_combined_dataset(
 
     # Positives
     print(f"Loading positive dataset: {positive_repo_id}")
-    pos_ds = load_dataset_hf(positive_repo_id, root=root)
+    pos_ds = load_dataset_hf(positive_repo_id, root=root, video_backend=video_backend)
     n_pos = pos_ds.meta.total_episodes
     if dry_run:
         n_pos = min(3, n_pos)
@@ -136,7 +137,7 @@ def load_combined_dataset(
     # Negatives
     for neg_repo in negative_repo_ids:
         print(f"Loading negative dataset: {neg_repo}")
-        neg_ds = load_dataset_hf(neg_repo, root=root)
+        neg_ds = load_dataset_hf(neg_repo, root=root, video_backend=video_backend)
         n_neg = neg_ds.meta.total_episodes
         if dry_run:
             n_neg = min(3, n_neg)
@@ -304,6 +305,8 @@ def main():
     ap.add_argument("--wrist_camera_key", default="observation.images.wrist")
     ap.add_argument("--dry_run", action="store_true",
                     help="Run on 3 episodes per dataset and 2 epochs to verify setup.")
+    ap.add_argument("--video_backend", default="pyav",
+                    help="Video decoding backend: 'pyav' (default) or 'torchcodec'.")
     args = ap.parse_args()
 
     from i_failsense.model import FailSense, process_input
@@ -328,6 +331,7 @@ def main():
             args.root, args.top_camera_key, args.wrist_camera_key,
             val_fraction=args.val_fraction, seed=args.seed,
             dry_run=args.dry_run,
+            video_backend=args.video_backend,
         )
 
     # Load model

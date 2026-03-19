@@ -212,7 +212,7 @@ def update_info_json(info_file):
         data['features'][key]['names'] = names
     json.dump(data, open(info_file, 'w'), indent=4)
 
-def load_dataset_hf(repo_id, episodes=None, root=None, revision=None):
+def load_dataset_hf(repo_id, episodes=None, root=None, revision=None, video_backend=None):
     ds_meta = LeRobotDatasetMetadata(
         repo_id, root=root, revision=revision, force_cache_sync=False
     )
@@ -224,7 +224,7 @@ def load_dataset_hf(repo_id, episodes=None, root=None, revision=None):
         #delta_timestamps=delta_timestamps,
         #image_transforms=image_transforms,
         #revision=revision,
-        #video_backend=cfg.dataset.video_backend,
+        video_backend=video_backend,
     )
 
     # Check and update info.json
