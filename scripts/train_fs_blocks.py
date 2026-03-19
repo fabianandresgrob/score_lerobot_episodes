@@ -163,7 +163,8 @@ def load_combined_dataset(
 
 def train_one_epoch(model, items, task_description, process_input_fn,
                     top_camera_key, wrist_camera_key, optimizer,
-                    criterion, accumulation_steps, epoch, log_path):
+                    criterion, accumulation_steps, epoch, log_path,
+                    wandb_run=None):
     """Train for one epoch over a list of episode items."""
     from score_lerobot_episodes.semantic_adapter import episode_to_failsense_input
 
@@ -234,6 +235,11 @@ def train_one_epoch(model, items, task_description, process_input_fn,
         if (step_idx + 1) % 10 == 0:
             print(f"    step {step_idx+1}/{len(items)}  loss={actual_loss:.4f}  "
                   f"acc={correct/total:.4f}", flush=True)
+
+        if wandb_run is not None:
+            global_step = epoch * len(items) + step_idx
+            wandb_run.log({"step_loss": actual_loss, "step_acc": correct / total,
+                           "global_step": global_step})
 
     avg_loss = total_loss / len(items) if items else 0.0
     train_acc = correct / total if total > 0 else 0.0
@@ -405,7 +411,8 @@ def main():
         train_loss, train_acc = train_one_epoch(
             model, train_items, task_desc, process_input_fn,
             top_key, wrist_key, optimizer, criterion,
-            args.gradient_accumulation_steps, epoch, log_path
+            args.gradient_accumulation_steps, epoch, log_path,
+            wandb_run=wandb_run,
         )
 
         val_acc = validate(model, val_items, task_desc, process_input_fn,
