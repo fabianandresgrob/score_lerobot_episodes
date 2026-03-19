@@ -175,7 +175,8 @@ def main():
         results.append(entry)
 
         status = "✓" if predicted_label == args.ground_truth_label else "✗"
-        print(f"score={semantic_score:.3f}  pred={predicted_label}  gt={args.ground_truth_label}  {status}")
+        score_str = f"{semantic_score:.3f}" if semantic_score is not None else "err"
+        print(f"score={score_str}  pred={predicted_label}  gt={args.ground_truth_label}  {status}")
 
         # Save incrementally after every episode
         with open(args.output_path, "w") as f:
