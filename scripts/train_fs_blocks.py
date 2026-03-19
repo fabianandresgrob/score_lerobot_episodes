@@ -312,6 +312,12 @@ def main():
                     help="Run on 3 episodes per dataset and 2 epochs to verify setup.")
     ap.add_argument("--video_backend", default="pyav",
                     help="Video decoding backend: 'pyav' (default) or 'torchcodec'.")
+    ap.add_argument("--wandb", action="store_true",
+                    help="Enable Weights & Biases logging.")
+    ap.add_argument("--wandb_project", default="fs-block-training",
+                    help="W&B project name (default: fs-block-training).")
+    ap.add_argument("--wandb_run_name", default=None,
+                    help="W&B run name. Defaults to output_dir basename.")
     args = ap.parse_args()
 
     from i_failsense.model import FailSense, process_input
@@ -376,6 +382,21 @@ def main():
     log = []
     best_val_acc = 0.0
 
+    # W&B setup
+    wandb_run = None
+    if args.wandb:
+        try:
+            import wandb
+            run_name = args.wandb_run_name or os.path.basename(args.output_dir)
+            wandb_run = wandb.init(
+                project=args.wandb_project,
+                name=run_name,
+                config=vars(args),
+            )
+            print(f"W&B run: {wandb_run.url}")
+        except ImportError:
+            print("WARNING: wandb not installed, skipping. Run: pip install wandb")
+
     # Training loop
     for epoch in range(num_epochs):
         print(f"\nEpoch {epoch+1}/{num_epochs}")
@@ -403,6 +424,9 @@ def main():
         with open(log_path, "w") as f:
             json.dump(log, f, indent=2)
 
+        if wandb_run is not None:
+            wandb_run.log(epoch_record)
+
         # Save epoch checkpoint
         model.save_classifier(path=args.output_dir, epoch=epoch + 1)
 
@@ -412,6 +436,9 @@ def main():
             print(f"  *** New best val accuracy: {best_val_acc:.4f} ***")
 
         model.vlm_model.eval()  # Keep VLM in eval after each epoch check
+
+    if wandb_run is not None:
+        wandb_run.finish()
 
     model.cleanup()
     print(f"\nTraining complete. Best val accuracy: {best_val_acc:.4f}")
