@@ -133,8 +133,6 @@ class SemanticScorer:
             images=images_batch,
             return_tensors="pt",
             padding=True,
-            truncation=True,
-            max_length=512,
         ).to(self._device)
 
         # Clear stale hook features to avoid confusion (hooks fire but we ignore them)
