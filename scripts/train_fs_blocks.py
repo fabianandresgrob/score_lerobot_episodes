@@ -169,6 +169,11 @@ def train_one_epoch(model, items, task_description, process_input_fn,
 
     model.train()
     model.vlm_model.eval()  # VLM always in eval mode
+    # BatchNorm requires batch_size > 1 to compute stats; with batch_size=1
+    # switch to eval mode so it uses accumulated running statistics instead.
+    for m in model.modules():
+        if isinstance(m, (torch.nn.BatchNorm1d, torch.nn.BatchNorm2d)):
+            m.eval()
 
     total_loss = 0.0
     correct = 0
