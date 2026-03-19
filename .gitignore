@@ -17,3 +17,5 @@ output/build/
 *.egg-info/
 dist/
 *.pyc
+results/
+.vscode/
