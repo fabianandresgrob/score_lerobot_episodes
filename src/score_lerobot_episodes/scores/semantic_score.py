@@ -135,8 +135,10 @@ class SemanticScorer:
             padding=True,
         ).to(self._device)
 
-        # Clear stale hook features to avoid confusion (hooks fire but we ignore them)
+        # Clear stale hook features and free fragmented GPU memory before forward pass
         self.model.layer_features.clear()
+        if self._device.type == "cuda":
+            torch.cuda.empty_cache()
 
         with torch.no_grad():
             output = self.model.vlm_model(**model_inputs)
