@@ -99,6 +99,8 @@ def main():
                     help="Probability threshold for binary predicted_label.")
     ap.add_argument("--dry_run", action="store_true",
                     help="Process only the first 5 episodes to verify correctness.")
+    ap.add_argument("--video_backend", default="pyav",
+                    help="Video decoding backend: 'pyav' (default) or 'torchcodec'.")
     args = ap.parse_args()
 
     mode = "vlm_only" if args.fs_weights_path is None else "full"
@@ -113,7 +115,7 @@ def main():
     # Load dataset
     from score_lerobot_episodes.data import load_dataset_hf
     print(f"Loading dataset: {args.repo_id}")
-    dataset = load_dataset_hf(args.repo_id, root=args.root)
+    dataset = load_dataset_hf(args.repo_id, root=args.root, video_backend=args.video_backend)
     n_episodes = dataset.meta.total_episodes
     print(f"  Total episodes: {n_episodes}")
 
