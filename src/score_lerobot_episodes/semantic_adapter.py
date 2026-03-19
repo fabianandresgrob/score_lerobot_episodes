@@ -62,7 +62,7 @@ def episode_to_failsense_input(
     task_description: str,
     top_camera_key: str = "observation.images.top",
     wrist_camera_key: str = "observation.images.wrist",
-    target_size: Tuple[int, int] = (224, 224),
+    target_size: Tuple[int, int] | None = None,
 ) -> Tuple[List[Image.Image], str]:
     """
     Convert a LeRobot episode to the input format expected by I-FailSense.
@@ -73,7 +73,10 @@ def episode_to_failsense_input(
         task_description: Natural-language task description string.
         top_camera_key:   Feature key for the top (exocentric) camera.
         wrist_camera_key: Feature key for the wrist (egocentric) camera.
-        target_size:      (H, W) to resize each frame to. Default 224×224.
+        target_size:      (H, W) to resize each frame to, or None to keep
+                          original resolution (default). The VLM processor
+                          handles resizing internally, so resizing here is
+                          only needed for visualisation.
 
     Returns:
         images:           Flat list of 8 PIL Images:
@@ -96,15 +99,17 @@ def episode_to_failsense_input(
     from_idx, to_idx = _get_episode_frame_bounds(dataset, episode_idx)
     sample_indices = _sample_4_indices(from_idx, to_idx)
 
-    resize = transforms.Resize(target_size, antialias=True)
+    resize = transforms.Resize(target_size, antialias=True) if target_size is not None else None
 
     top_frames: List[Image.Image] = []
     wrist_frames: List[Image.Image] = []
 
     for global_idx in sample_indices:
         sample = dataset[global_idx]
-        top_frames.append(_tensor_to_pil(resize(sample[top_camera_key])))
-        wrist_frames.append(_tensor_to_pil(resize(sample[wrist_camera_key])))
+        top_tensor = resize(sample[top_camera_key]) if resize else sample[top_camera_key]
+        wrist_tensor = resize(sample[wrist_camera_key]) if resize else sample[wrist_camera_key]
+        top_frames.append(_tensor_to_pil(top_tensor))
+        wrist_frames.append(_tensor_to_pil(wrist_tensor))
 
     # I-FailSense 2pov order: all top frames first, then all wrist frames
     images = top_frames + wrist_frames

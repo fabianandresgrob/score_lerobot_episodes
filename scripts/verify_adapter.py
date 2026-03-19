@@ -98,10 +98,10 @@ def main():
                     default="pick up the orange cube and place it in the blue container")
     ap.add_argument("--top_camera_key", default="observation.images.top")
     ap.add_argument("--wrist_camera_key", default="observation.images.wrist")
-    ap.add_argument("--frame_size", type=int, nargs=2, default=[224, 224],
+    ap.add_argument("--frame_size", type=int, nargs=2, default=None,
                     metavar=("W", "H"),
-                    help="Frame size in the grid (default 224 224). "
-                         "Increase e.g. to 320 240 for more detail.")
+                    help="Frame size in the grid (W H). Omit to use the "
+                         "original dataset resolution (default).")
     ap.add_argument("--output_dir", default="verify_output")
     ap.add_argument("--save_individual", action="store_true",
                     help="Also save each of the 8 frames as individual PNGs.")
@@ -146,7 +146,7 @@ def main():
         episodes = [e for e in episodes if e < total]
 
     print(f"\nProcessing episodes: {episodes}")
-    frame_size = tuple(args.frame_size)
+    target_size = tuple(args.frame_size) if args.frame_size else None
 
     for ep_idx in episodes:
         print(f"\n  Episode {ep_idx}:")
@@ -168,8 +168,12 @@ def main():
         images, _ = episode_to_failsense_input(
             dataset, ep_idx, args.task_description,
             args.top_camera_key, args.wrist_camera_key,
-            target_size=frame_size,
+            target_size=target_size,
         )
+
+        # Derive grid cell size from the actual images (W, H)
+        frame_size = images[0].size  # PIL .size is (W, H)
+        print(f"    Frame size:  {frame_size[0]}×{frame_size[1]} px")
 
         # Save grid
         grid_path = save_grid(images, ep_idx, args.output_dir, frame_size)
