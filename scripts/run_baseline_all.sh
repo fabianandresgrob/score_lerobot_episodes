@@ -9,10 +9,18 @@
 set -e
 
 DRY_RUN=""
-if [[ "$1" == "--dry_run" ]]; then
-    DRY_RUN="--dry_run"
-    echo "DRY RUN MODE — processing 5 episodes per dataset"
-fi
+FS_WEIGHTS=""
+MODE_SUFFIX="vlmonly"
+
+for arg in "$@"; do
+    case $arg in
+        --dry_run)   DRY_RUN="--dry_run" ;;
+        --fs_weights_path=*) FS_WEIGHTS="${arg#*=}"; MODE_SUFFIX="full" ;;
+    esac
+done
+
+if [[ -n "$DRY_RUN" ]]; then echo "DRY RUN MODE — processing 5 episodes per dataset"; fi
+if [[ -n "$FS_WEIGHTS" ]]; then echo "FULL MODEL MODE — using FS weights: $FS_WEIGHTS"; fi
 
 TASK="pick up the orange cube and place it in the blue container"
 PYTHON="python"
@@ -32,7 +40,8 @@ run() {
         --task_description "$TASK" \
         --condition "$condition" \
         --ground_truth_label "$gt_label" \
-        --output_path "results/baseline_${condition}_vlmonly.json" \
+        --output_path "results/baseline_${condition}_${MODE_SUFFIX}.json" \
+        ${FS_WEIGHTS:+--fs_weights_path "$FS_WEIGHTS"} \
         $DRY_RUN
 }
 
