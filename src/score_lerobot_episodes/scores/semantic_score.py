@@ -119,12 +119,15 @@ class SemanticScorer:
 
     def _vlm_only_score(self, images: list, text_prompt: str) -> float:
         """
-        VLM-only baseline: decode the last autoregressive token from the
-        PaliGemma2 backbone. No FS block classifiers used.
+        VLM-only baseline: generate one token from the PaliGemma2 backbone
+        and check if it is "success" or "fail". No FS block classifiers used.
+
+        Uses generate(max_new_tokens=1) instead of a full forward pass so that
+        the LM head is only applied to the last position, avoiding the ~1 GiB
+        logits tensor that model(**inputs) would produce for all 2048+ positions.
 
         Returns 1.0 for "success", 0.0 for "fail", 0.5 if indeterminate.
         """
-        # Wrap in batch dimension: [[pil1..pil8]] and ["<image>...<image> evaluate en task"]
         images_batch = [images]
         text_batch = [text_prompt]
 
@@ -140,13 +143,19 @@ class SemanticScorer:
         if self._device.type == "cuda":
             torch.cuda.empty_cache()
 
-        with torch.no_grad():
-            output = self.model.vlm_model(**model_inputs)
-            last_token_logits = output.logits[:, -1, :]  # [1, vocab_size]
+        input_len = model_inputs["input_ids"].shape[1]
 
-        predicted_id = torch.argmax(last_token_logits, dim=-1)
+        with torch.no_grad():
+            output_ids = self.model.vlm_model.generate(
+                **model_inputs,
+                max_new_tokens=1,
+                do_sample=False,
+            )
+
+        # Decode only the single newly generated token
+        generated_id = output_ids[0, input_len]
         decoded = self.model.processor.decode(
-            [predicted_id.item()], skip_special_tokens=True
+            [generated_id.item()], skip_special_tokens=True
         ).strip().lower()
 
         if decoded in ("success", "1", "pass"):
