@@ -247,10 +247,7 @@ def main():
         dataset_path = os.path.join(cache_dir, args.repo_id)
 
     if args.output:
-        #save the filtered dataset in the output args.output
         save_filtered_dataset(dataset_path, args.output, good_episodes_list, overwrite=args.overwrite)
-        #load the filtered dataset using args.output as the root
-        ds = load_dataset_hf(args.repo_id, root=args.output)
 
     # Training config required args.
     #  --dataset.repo_id=${HF_USER}/trossen_ai_stationary_test \
