@@ -118,7 +118,9 @@ def main():
                 semantic_scores[ep_idx] = score
                 print(f"{score:.3f}")
             except Exception as e:
+                import traceback
                 print(f"ERROR: {e}")
+                traceback.print_exc()
                 semantic_scores[ep_idx] = None
         sem_scorer.cleanup()
 
