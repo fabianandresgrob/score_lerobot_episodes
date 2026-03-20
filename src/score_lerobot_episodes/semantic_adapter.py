@@ -11,8 +11,10 @@ images_1 (top) first, then images_2 (wrist), each with 4 evenly-spaced frames.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import List, Tuple
 
+import av
 import torch
 from PIL import Image
 from torchvision import transforms
@@ -38,6 +40,42 @@ def _sample_4_indices(from_idx: int, to_idx: int) -> List[int]:
             indices.append(indices[-1])
         return indices
     return [from_idx + int(i * (total - 1) / 3) for i in range(4)]
+
+
+def _load_frame_via_av(dataset, global_idx: int, camera_key: str) -> torch.Tensor:
+    """
+    Read a video frame directly from disk using pyav.
+
+    Fallback for when dataset[i] silently omits video keys (e.g. when the
+    LeRobot video backend fails to decode but doesn't raise an error).
+    Reads the path + timestamp stored in the raw parquet row, then seeks
+    to that timestamp in the video file.
+    """
+    raw = dataset.hf_dataset[global_idx]
+    meta = raw[camera_key]          # {"path": "videos/.../file-000.mp4", "timestamp": float}
+    rel_path = meta["path"]
+    timestamp = float(meta["timestamp"])
+
+    # dataset.root may or may not include the repo_id component depending on
+    # the LeRobot version; try both so the code works across versions.
+    root = Path(dataset.root)
+    candidates = [root / rel_path, root.parent / dataset.repo_id / rel_path]
+    video_path = next((p for p in candidates if p.exists()), None)
+    if video_path is None:
+        raise FileNotFoundError(
+            f"Video not found for '{camera_key}' (tried: "
+            + ", ".join(str(p) for p in candidates) + ")"
+        )
+
+    with av.open(str(video_path)) as container:
+        stream = container.streams.video[0]
+        container.seek(int(timestamp * 1_000_000), stream=stream)
+        for frame in container.decode(stream):
+            if float(frame.pts * stream.time_base) >= timestamp - 0.001:
+                arr = frame.to_ndarray(format="rgb24")   # HWC uint8
+                return torch.from_numpy(arr).permute(2, 0, 1)  # CHW
+
+    raise RuntimeError(f"Frame at timestamp {timestamp:.4f}s not found in {video_path}")
 
 
 def _tensor_to_pil(tensor: torch.Tensor) -> Image.Image:
@@ -95,12 +133,28 @@ def episode_to_failsense_input(
     top_frames: List[Image.Image] = []
     wrist_frames: List[Image.Image] = []
 
+    _warned_fallback = False
     for global_idx in sample_indices:
         sample = dataset[global_idx]
-        if global_idx == sample_indices[0]:
-            print(f"\nDEBUG sample keys: {list(sample.keys())}", flush=True)
-        top_tensor = resize(sample[top_camera_key]) if resize else sample[top_camera_key]
-        wrist_tensor = resize(sample[wrist_camera_key]) if resize else sample[wrist_camera_key]
+
+        if top_camera_key in sample:
+            top_tensor = sample[top_camera_key]
+            wrist_tensor = sample[wrist_camera_key]
+        else:
+            if not _warned_fallback:
+                print(
+                    f"\n[semantic_adapter] dataset[i] missing video keys "
+                    f"(got: {list(sample.keys())}); "
+                    "falling back to direct pyav video reading.",
+                    flush=True,
+                )
+                _warned_fallback = True
+            top_tensor = _load_frame_via_av(dataset, global_idx, top_camera_key)
+            wrist_tensor = _load_frame_via_av(dataset, global_idx, wrist_camera_key)
+
+        if resize:
+            top_tensor = resize(top_tensor)
+            wrist_tensor = resize(wrist_tensor)
         top_frames.append(_tensor_to_pil(top_tensor))
         wrist_frames.append(_tensor_to_pil(wrist_tensor))
 
