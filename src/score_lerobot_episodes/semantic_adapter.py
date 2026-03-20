@@ -97,6 +97,8 @@ def episode_to_failsense_input(
 
     for global_idx in sample_indices:
         sample = dataset[global_idx]
+        if global_idx == sample_indices[0]:
+            print(f"\nDEBUG sample keys: {list(sample.keys())}", flush=True)
         top_tensor = resize(sample[top_camera_key]) if resize else sample[top_camera_key]
         wrist_tensor = resize(sample[wrist_camera_key]) if resize else sample[wrist_camera_key]
         top_frames.append(_tensor_to_pil(top_tensor))
