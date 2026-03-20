@@ -56,10 +56,11 @@ def _load_frame_via_cv2(dataset, global_idx: int, camera_key: str) -> torch.Tens
     """
     root = Path(dataset.root)
     # dataset.root may or may not include the repo_id depending on how the
-    # dataset was loaded (HF cache includes it; --root does not). Try both.
+    # dataset was loaded (HF cache includes it; --root does not). Try the
+    # repo_id variant first to avoid accidentally matching stray directories.
     candidates = [
-        root / "videos" / camera_key,
         root / dataset.repo_id / "videos" / camera_key,
+        root / "videos" / camera_key,
     ]
     cam_dir = next((p for p in candidates if p.is_dir()), None)
     if cam_dir is None:
