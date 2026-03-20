@@ -14,7 +14,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List, Tuple
 
-import av
+import cv2
+import numpy as np
 import torch
 from PIL import Image
 from torchvision import transforms
@@ -42,40 +43,46 @@ def _sample_4_indices(from_idx: int, to_idx: int) -> List[int]:
     return [from_idx + int(i * (total - 1) / 3) for i in range(4)]
 
 
-def _load_frame_via_av(dataset, global_idx: int, camera_key: str) -> torch.Tensor:
+def _load_frame_via_cv2(dataset, global_idx: int, camera_key: str) -> torch.Tensor:
     """
-    Read a video frame directly from disk using pyav.
+    Read a video frame directly from disk using cv2.
 
-    Fallback for when dataset[i] silently omits video keys (e.g. when the
-    LeRobot video backend fails to decode but doesn't raise an error).
-    Reads the path + timestamp stored in the raw parquet row, then seeks
-    to that timestamp in the video file.
+    Fallback for when dataset[i] silently omits video keys. Constructs the
+    video path from dataset.root + LeRobot v2 chunk layout and seeks to the
+    correct frame by global dataset index.
+
+    dataset.root is expected to include the repo_id, e.g.:
+        /data/lerobot_datasets/fabiangrob/pick_place_mixed_unfiltered
     """
-    raw = dataset.hf_dataset[global_idx]
-    meta = raw[camera_key]          # {"path": "videos/.../file-000.mp4", "timestamp": float}
-    rel_path = meta["path"]
-    timestamp = float(meta["timestamp"])
+    cam_dir = Path(dataset.root) / "videos" / camera_key
+    if not cam_dir.exists():
+        raise FileNotFoundError(f"Camera video directory not found: {cam_dir}")
 
-    # dataset.root may or may not include the repo_id component depending on
-    # the LeRobot version; try both so the code works across versions.
-    root = Path(dataset.root)
-    candidates = [root / rel_path, root.parent / dataset.repo_id / rel_path]
-    video_path = next((p for p in candidates if p.exists()), None)
-    if video_path is None:
-        raise FileNotFoundError(
-            f"Video not found for '{camera_key}' (tried: "
-            + ", ".join(str(p) for p in candidates) + ")"
+    chunk_files = sorted(cam_dir.glob("chunk-*/file-000.mp4"))
+    if not chunk_files:
+        raise FileNotFoundError(f"No chunk video files (chunk-*/file-000.mp4) under {cam_dir}")
+
+    # Get frames-per-chunk from first video
+    cap0 = cv2.VideoCapture(str(chunk_files[0]))
+    chunk_size = int(cap0.get(cv2.CAP_PROP_FRAME_COUNT))
+    cap0.release()
+
+    chunk_idx = min(global_idx // chunk_size, len(chunk_files) - 1)
+    frame_in_chunk = global_idx % chunk_size
+    video_path = chunk_files[chunk_idx]
+
+    cap = cv2.VideoCapture(str(video_path))
+    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_in_chunk)
+    ret, frame_bgr = cap.read()
+    cap.release()
+
+    if not ret:
+        raise RuntimeError(
+            f"cv2 failed to read frame {frame_in_chunk} (global {global_idx}) from {video_path}"
         )
 
-    with av.open(str(video_path)) as container:
-        stream = container.streams.video[0]
-        container.seek(int(timestamp * 1_000_000), stream=stream)
-        for frame in container.decode(stream):
-            if float(frame.pts * stream.time_base) >= timestamp - 0.001:
-                arr = frame.to_ndarray(format="rgb24")   # HWC uint8
-                return torch.from_numpy(arr).permute(2, 0, 1)  # CHW
-
-    raise RuntimeError(f"Frame at timestamp {timestamp:.4f}s not found in {video_path}")
+    frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+    return torch.from_numpy(frame_rgb).permute(2, 0, 1)  # CHW uint8
 
 
 def _tensor_to_pil(tensor: torch.Tensor) -> Image.Image:
@@ -145,12 +152,12 @@ def episode_to_failsense_input(
                 print(
                     f"\n[semantic_adapter] dataset[i] missing video keys "
                     f"(got: {list(sample.keys())}); "
-                    "falling back to direct pyav video reading.",
+                    "falling back to direct cv2 video reading.",
                     flush=True,
                 )
                 _warned_fallback = True
-            top_tensor = _load_frame_via_av(dataset, global_idx, top_camera_key)
-            wrist_tensor = _load_frame_via_av(dataset, global_idx, wrist_camera_key)
+            top_tensor = _load_frame_via_cv2(dataset, global_idx, top_camera_key)
+            wrist_tensor = _load_frame_via_cv2(dataset, global_idx, wrist_camera_key)
 
         if resize:
             top_tensor = resize(top_tensor)
