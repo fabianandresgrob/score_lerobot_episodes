@@ -54,9 +54,19 @@ def _load_frame_via_cv2(dataset, global_idx: int, camera_key: str) -> torch.Tens
     dataset.root is expected to include the repo_id, e.g.:
         /data/lerobot_datasets/fabiangrob/pick_place_mixed_unfiltered
     """
-    cam_dir = Path(dataset.root) / "videos" / camera_key
-    if not cam_dir.exists():
-        raise FileNotFoundError(f"Camera video directory not found: {cam_dir}")
+    root = Path(dataset.root)
+    # dataset.root may or may not include the repo_id depending on how the
+    # dataset was loaded (HF cache includes it; --root does not). Try both.
+    candidates = [
+        root / "videos" / camera_key,
+        root / dataset.repo_id / "videos" / camera_key,
+    ]
+    cam_dir = next((p for p in candidates if p.is_dir()), None)
+    if cam_dir is None:
+        raise FileNotFoundError(
+            f"Camera video directory not found (tried: "
+            + ", ".join(str(p) for p in candidates) + ")"
+        )
 
     chunk_files = sorted(cam_dir.glob("chunk-*/file-000.mp4"))
     if not chunk_files:
