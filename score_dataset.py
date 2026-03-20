@@ -67,6 +67,8 @@ def main():
                          "Omit for VLM-only baseline mode.")
     ap.add_argument("--semantic_threshold", type=float, default=0.5,
                     help="Semantic score threshold for filtering (default 0.5).")
+    ap.add_argument("--video_backend", type=str, default="pyav",
+                    help="Video backend for LeRobot dataset loading (default: pyav).")
     args = ap.parse_args()
 
     if args.semantic and not args.task_description:
@@ -74,7 +76,7 @@ def main():
 
 
     # Load dataset.
-    dataset = load_dataset_hf(args.repo_id, root=args.root)
+    dataset = load_dataset_hf(args.repo_id, root=args.root, video_backend=args.video_backend)
     task = dataset.meta.tasks
 
     # This maps episode_id to video path (by camera key), states and actions.
