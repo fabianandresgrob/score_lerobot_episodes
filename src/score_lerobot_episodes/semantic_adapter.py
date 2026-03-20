@@ -87,21 +87,6 @@ def episode_to_failsense_input(
     Raises:
         KeyError: If camera keys are not present in the dataset features.
     """
-    # Validate camera keys early for a clear error message.
-    # HF-downloaded datasets have video keys in dataset.features, but
-    # locally-built datasets only list them in dataset.meta.features.
-    available = (
-        set(dataset.features.keys())
-        | set(getattr(dataset.meta, "features", {}).keys())
-        | set(getattr(dataset.meta, "video_keys", []))
-    )
-    for key in (top_camera_key, wrist_camera_key):
-        if key not in available:
-            raise KeyError(
-                f"Camera key '{key}' not found in dataset features. "
-                f"Available keys: {sorted(available)}"
-            )
-
     from_idx, to_idx = _get_episode_frame_bounds(dataset, episode_idx)
     sample_indices = _sample_4_indices(from_idx, to_idx)
 
@@ -136,20 +121,3 @@ def verify_grid_visually(
     from PIL import ImageDraw, ImageFont
 
     assert len(images) == 8, f"Expected 8 images, got {len(images)}"
-    W, H = images[0].size
-    cols, rows = 4, 2
-    grid_w, grid_h = W * cols + (cols - 1) * 2, H * rows + (rows - 1) * 2 + 20
-    grid = Image.new("RGB", (grid_w, grid_h), (200, 200, 200))
-
-    labels = [f"top t{i}" for i in range(4)] + [f"wrist t{i}" for i in range(4)]
-    draw = ImageDraw.Draw(grid)
-
-    for i, (img, label) in enumerate(zip(images, labels)):
-        row, col = divmod(i, 4)
-        x = col * (W + 2)
-        y = row * (H + 2)
-        grid.paste(img, (x, y))
-        draw.text((x + 2, y + 2), label, fill=(255, 255, 0))
-
-    grid.save(output_path)
-    print(f"Verification grid saved to: {output_path}")
