@@ -87,13 +87,15 @@ def episode_to_failsense_input(
     Raises:
         KeyError: If camera keys are not present in the dataset features.
     """
-    # Validate camera keys early for a clear error message
-    available = list(dataset.features.keys())
+    # Validate camera keys early for a clear error message.
+    # For locally-built datasets video keys are in dataset.meta.video_keys,
+    # not in dataset.features (which only contains parquet columns).
+    available = set(dataset.features.keys()) | set(getattr(dataset.meta, "video_keys", []))
     for key in (top_camera_key, wrist_camera_key):
         if key not in available:
             raise KeyError(
                 f"Camera key '{key}' not found in dataset features. "
-                f"Available keys: {available}"
+                f"Available keys: {sorted(available)}"
             )
 
     from_idx, to_idx = _get_episode_frame_bounds(dataset, episode_idx)
