@@ -493,7 +493,8 @@ def main():
     # Evaluate on held-out test set if one exists
     if test_items:
         print(f"\nEvaluating best checkpoint on held-out test set ({len(test_items)} episodes)...")
-        model.load_classifier(path=args.output_dir, epoch="best")
+        best_path = os.path.join(args.output_dir, "components_epoch_best.pt")
+        model.load_classifier(best_path)
         test_acc = validate(model, test_items, task_desc, process_input_fn,
                             top_key, wrist_key)
         print(f"  TEST ACCURACY: {test_acc:.4f}")
