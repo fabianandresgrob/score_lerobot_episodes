@@ -31,6 +31,17 @@ Example usage (full model after FS block training):
         --ground_truth_label 1 \\
         --fs_weights_path checkpoints/fs_blocks_custom/components_best.pt \\
         --output_path results/full_model_clean.json
+
+Example usage (evaluate only on held-out test episodes):
+    python scripts/evaluate_semantic_baseline.py \\
+        --repo_id j-m-h/pick_place_clean_realsense_downscaled \\
+        --task_description "pick up the orange cube and place it in the blue container" \\
+        --condition clean \\
+        --ground_truth_label 1 \\
+        --fs_weights_path checkpoints/fs_blocks_custom/components_best.pt \\
+        --split_file checkpoints/fs_blocks_custom/split_info.json \\
+        --split test \\
+        --output_path results/full_model_clean_test_only.json
 """
 
 import argparse
@@ -97,11 +108,22 @@ def main():
                     help="Dataset feature key for the wrist camera.")
     ap.add_argument("--semantic_threshold", type=float, default=0.5,
                     help="Probability threshold for binary predicted_label.")
+    ap.add_argument("--split_file", default=None,
+                    help="Path to split_info.json from training. When given together "
+                         "with --split, only episodes belonging to that split are "
+                         "evaluated (e.g. only the held-out test episodes).")
+    ap.add_argument("--split", default=None, choices=["train", "val", "test"],
+                    help="Which split to evaluate. Requires --split_file.")
     ap.add_argument("--dry_run", action="store_true",
                     help="Process only the first 5 episodes to verify correctness.")
     ap.add_argument("--video_backend", default="pyav",
                     help="Video decoding backend: 'pyav' (default) or 'torchcodec'.")
     args = ap.parse_args()
+
+    if args.split and not args.split_file:
+        ap.error("--split requires --split_file")
+    if args.split_file and not args.split:
+        ap.error("--split_file requires --split")
 
     mode = "vlm_only" if args.fs_weights_path is None else "full"
     print(f"\n{'='*60}")
@@ -119,9 +141,28 @@ def main():
     n_episodes = dataset.meta.total_episodes
     print(f"  Total episodes: {n_episodes}")
 
+    # Determine which episode indices to evaluate
+    if args.split_file:
+        with open(args.split_file) as f:
+            split_info = json.load(f)
+        split_episodes = split_info[args.split]
+        episode_indices = sorted(
+            entry["ep_idx"]
+            for entry in split_episodes
+            if entry["source"] == args.repo_id
+        )
+        print(f"  Filtering to {args.split} split: {len(episode_indices)} episodes "
+              f"from {args.repo_id}")
+        if not episode_indices:
+            print(f"  WARNING: no episodes from {args.repo_id} found in the "
+                  f"{args.split} split. Nothing to evaluate.")
+            return
+    else:
+        episode_indices = list(range(n_episodes))
+
     if args.dry_run:
-        n_episodes = min(5, n_episodes)
-        print(f"  DRY RUN: processing only {n_episodes} episodes\n")
+        episode_indices = episode_indices[:5]
+        print(f"  DRY RUN: processing only {len(episode_indices)} episodes\n")
 
     # Load SemanticScorer
     from score_lerobot_episodes.scores.semantic_score import SemanticScorer
@@ -148,11 +189,11 @@ def main():
         done_episodes = set()
 
     # Score each episode
-    for ep_idx in range(n_episodes):
+    for i, ep_idx in enumerate(episode_indices):
         if ep_idx in done_episodes:
             continue
 
-        print(f"  Episode {ep_idx}/{n_episodes - 1}...", end=" ", flush=True)
+        print(f"  Episode {ep_idx} ({i+1}/{len(episode_indices)})...", end=" ", flush=True)
         try:
             semantic_score = scorer.score_episode(dataset, ep_idx)
         except Exception as e:

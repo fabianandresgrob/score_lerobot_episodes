@@ -114,11 +114,23 @@ def load_combined_dataset(
     top_camera_key: str,
     wrist_camera_key: str,
     val_fraction: float = 0.2,
+    test_fraction: float = 0.0,
     seed: int = 42,
     dry_run: bool = False,
     video_backend: str = "pyav",
 ):
-    """Load positive and negative LeRobot datasets and return train/val splits."""
+    """Load positive and negative LeRobot datasets and return train/val(/test) splits.
+
+    When test_fraction > 0, returns a 3-way split: test is carved out first,
+    then the remainder is split into train and val. This ensures the test set
+    is never seen during training or validation / checkpoint selection.
+
+    Returns:
+        (train_items, val_items, test_items, task_description, process_input_fn,
+         top_camera_key, wrist_camera_key, split_info)
+        split_info is a JSON-serialisable dict recording which (source, ep_idx)
+        ended up in which split, for reproducibility and later evaluation.
+    """
     from score_lerobot_episodes.data import load_dataset_hf
 
     all_items = []
@@ -149,12 +161,36 @@ def load_combined_dataset(
     # Shuffle and split
     random.seed(seed)
     random.shuffle(all_items)
-    n_val = max(1, int(len(all_items) * val_fraction))
-    val_items = all_items[:n_val]
-    train_items = all_items[n_val:]
 
-    print(f"\nDataset split: {len(train_items)} train, {len(val_items)} val")
-    return train_items, val_items, task_description, process_input_fn, top_camera_key, wrist_camera_key
+    n_test = max(1, int(len(all_items) * test_fraction)) if test_fraction > 0 else 0
+    n_val = max(1, int((len(all_items) - n_test) * val_fraction))
+
+    test_items = all_items[:n_test]
+    remaining = all_items[n_test:]
+    val_items = remaining[:n_val]
+    train_items = remaining[n_val:]
+
+    # Build split_info for reproducibility
+    def _item_id(item):
+        return {"source": item["source"], "ep_idx": item["ep_idx"],
+                "label": item["label"]}
+
+    split_info = {
+        "seed": seed,
+        "val_fraction": val_fraction,
+        "test_fraction": test_fraction,
+        "train": [_item_id(it) for it in train_items],
+        "val":   [_item_id(it) for it in val_items],
+        "test":  [_item_id(it) for it in test_items],
+    }
+
+    parts = f"{len(train_items)} train, {len(val_items)} val"
+    if test_items:
+        parts += f", {len(test_items)} test"
+    print(f"\nDataset split: {parts}")
+
+    return (train_items, val_items, test_items, task_description,
+            process_input_fn, top_camera_key, wrist_camera_key, split_info)
 
 
 # ---------------------------------------------------------------------------
@@ -310,6 +346,9 @@ def main():
     ap.add_argument("--lr", type=float, default=1e-4)
     ap.add_argument("--weight_decay", type=float, default=0.1)
     ap.add_argument("--val_fraction", type=float, default=0.2)
+    ap.add_argument("--test_fraction", type=float, default=0.0,
+                    help="Fraction of data to hold out as a test set (never seen "
+                         "during training or validation). 0 = no test split.")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--device", default="cuda", choices=["cuda", "cpu", "mps"])
     ap.add_argument("--top_camera_key", default="observation.images.top")
@@ -341,15 +380,15 @@ def main():
     num_epochs = 2 if args.dry_run else args.num_epochs
 
     # Load data
-    train_items, val_items, task_desc, process_input_fn, top_key, wrist_key = \
-        load_combined_dataset(
-            args.positive_repo_id, args.negative_repo_ids,
-            args.task_description, process_input,
-            args.root, args.top_camera_key, args.wrist_camera_key,
-            val_fraction=args.val_fraction, seed=args.seed,
-            dry_run=args.dry_run,
-            video_backend=args.video_backend,
-        )
+    (train_items, val_items, test_items, task_desc, process_input_fn,
+     top_key, wrist_key, split_info) = load_combined_dataset(
+        args.positive_repo_id, args.negative_repo_ids,
+        args.task_description, process_input,
+        args.root, args.top_camera_key, args.wrist_camera_key,
+        val_fraction=args.val_fraction, test_fraction=args.test_fraction,
+        seed=args.seed, dry_run=args.dry_run,
+        video_backend=args.video_backend,
+    )
 
     # Load model
     print(f"\nLoading model: {args.vlm_model_id}")
@@ -380,9 +419,16 @@ def main():
     config = vars(args)
     config["n_train"] = len(train_items)
     config["n_val"] = len(val_items)
+    config["n_test"] = len(test_items)
     config["n_trainable_params"] = n_trainable
     with open(os.path.join(args.output_dir, "train_config.json"), "w") as f:
         json.dump(config, f, indent=2)
+
+    # Save split info so evaluation can filter by split
+    split_path = os.path.join(args.output_dir, "split_info.json")
+    with open(split_path, "w") as f:
+        json.dump(split_info, f, indent=2)
+    print(f"Split info saved to: {split_path}")
 
     log_path = os.path.join(args.output_dir, "train_log.json")
     log = []
@@ -444,14 +490,32 @@ def main():
 
         model.vlm_model.eval()  # Keep VLM in eval after each epoch check
 
+    # Evaluate on held-out test set if one exists
+    if test_items:
+        print(f"\nEvaluating best checkpoint on held-out test set ({len(test_items)} episodes)...")
+        model.load_classifier(path=args.output_dir, epoch="best")
+        test_acc = validate(model, test_items, task_desc, process_input_fn,
+                            top_key, wrist_key)
+        print(f"  TEST ACCURACY: {test_acc:.4f}")
+        # Append to log
+        log.append({"test_acc": round(test_acc, 4), "n_test": len(test_items)})
+        with open(log_path, "w") as f:
+            json.dump(log, f, indent=2)
+        if wandb_run is not None:
+            wandb_run.log({"test_acc": test_acc})
+
     if wandb_run is not None:
         wandb_run.finish()
 
     model.cleanup()
     print(f"\nTraining complete. Best val accuracy: {best_val_acc:.4f}")
+    if test_items:
+        print(f"Test accuracy: {test_acc:.4f}")
     print(f"Checkpoints saved to: {args.output_dir}")
+    print(f"Split info saved to: {args.output_dir}/split_info.json")
     print("Next step: run evaluate_semantic_baseline.py with "
-          f"--fs_weights_path {args.output_dir}/components_epoch_best.pt")
+          f"--fs_weights_path {args.output_dir}/components_epoch_best.pt "
+          f"--split_file {args.output_dir}/split_info.json --split test")
 
 
 if __name__ == "__main__":
